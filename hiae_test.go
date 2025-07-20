@@ -387,58 +387,36 @@ func TestKeyNonceLengths(t *testing.T) {
 	}
 }
 
-// BenchmarkEncrypt benchmarks the encryption operation
-func BenchmarkEncrypt(b *testing.B) {
+// benchmarkEncrypt benchmarks encryption for a given message size
+func benchmarkEncrypt(b *testing.B, size int) {
 	key := make([]byte, 32)
 	nonce := make([]byte, 16)
-	msg := make([]byte, 1024) // 1KB message
+	msg := make([]byte, size)
 	ad := []byte{}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, _, _ = Encrypt(msg, ad, key, nonce)
-	}
-}
-
-// BenchmarkDecrypt benchmarks the decryption operation
-func BenchmarkDecrypt(b *testing.B) {
-	key := make([]byte, 32)
-	nonce := make([]byte, 16)
-	msg := make([]byte, 1024) // 1KB message
-	ad := []byte{}
-
-	ct, tag, _ := Encrypt(msg, ad, key, nonce)
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, _ = Decrypt(ct, tag, ad, key, nonce)
-	}
-}
-
-// BenchmarkEncryptTo benchmarks the zero-allocation encryption operation
-func BenchmarkEncryptTo(b *testing.B) {
-	key := make([]byte, 32)
-	nonce := make([]byte, 16)
-	msg := make([]byte, 1024) // 1KB message
-	ad := []byte{}
-	ct := make([]byte, 1024)
+	ct := make([]byte, size)
 	tag := make([]byte, 16)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = EncryptTo(msg, ad, key, nonce, ct, tag)
 	}
+
+	// Calculate throughput in Mb/s
+	bytesProcessed := int64(b.N) * int64(size)
+	mbitsProcessed := float64(bytesProcessed) * 8 / 1e6
+	mbitsPerSec := mbitsProcessed / b.Elapsed().Seconds()
+	b.ReportMetric(mbitsPerSec, "Mb/s")
 }
 
-// BenchmarkDecryptTo benchmarks the zero-allocation decryption operation
-func BenchmarkDecryptTo(b *testing.B) {
+// benchmarkDecrypt benchmarks decryption for a given message size
+func benchmarkDecrypt(b *testing.B, size int) {
 	key := make([]byte, 32)
 	nonce := make([]byte, 16)
-	msg := make([]byte, 1024) // 1KB message
+	msg := make([]byte, size)
 	ad := []byte{}
-	ct := make([]byte, 1024)
+	ct := make([]byte, size)
 	tag := make([]byte, 16)
-	msgOut := make([]byte, 1024)
+	msgOut := make([]byte, size)
 
 	_ = EncryptTo(msg, ad, key, nonce, ct, tag)
 
@@ -446,70 +424,40 @@ func BenchmarkDecryptTo(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_ = DecryptTo(ct, tag, ad, key, nonce, msgOut)
 	}
+
+	// Calculate throughput in Mb/s
+	bytesProcessed := int64(b.N) * int64(size)
+	mbitsProcessed := float64(bytesProcessed) * 8 / 1e6
+	mbitsPerSec := mbitsProcessed / b.Elapsed().Seconds()
+	b.ReportMetric(mbitsPerSec, "Mb/s")
 }
 
-// BenchmarkBatchEncrypt16Blocks benchmarks encryption of exactly 16 blocks (optimal for batch processing)
-func BenchmarkBatchEncrypt16Blocks(b *testing.B) {
-	key := make([]byte, 32)
-	nonce := make([]byte, 16)
-	msg := make([]byte, 16*16) // Exactly 16 blocks (256 bytes)
-	ad := []byte{}
-	ct := make([]byte, len(msg))
-	tag := make([]byte, 16)
+// Encryption benchmarks for various sizes
+func BenchmarkEncrypt16B(b *testing.B)  { benchmarkEncrypt(b, 16) }
+func BenchmarkEncrypt32B(b *testing.B)  { benchmarkEncrypt(b, 32) }
+func BenchmarkEncrypt64B(b *testing.B)  { benchmarkEncrypt(b, 64) }
+func BenchmarkEncrypt128B(b *testing.B) { benchmarkEncrypt(b, 128) }
+func BenchmarkEncrypt256B(b *testing.B) { benchmarkEncrypt(b, 256) }
+func BenchmarkEncrypt512B(b *testing.B) { benchmarkEncrypt(b, 512) }
+func BenchmarkEncrypt1KB(b *testing.B)  { benchmarkEncrypt(b, 1024) }
+func BenchmarkEncrypt2KB(b *testing.B)  { benchmarkEncrypt(b, 2048) }
+func BenchmarkEncrypt4KB(b *testing.B)  { benchmarkEncrypt(b, 4096) }
+func BenchmarkEncrypt8KB(b *testing.B)  { benchmarkEncrypt(b, 8192) }
+func BenchmarkEncrypt16KB(b *testing.B) { benchmarkEncrypt(b, 16384) }
+func BenchmarkEncrypt32KB(b *testing.B) { benchmarkEncrypt(b, 32768) }
+func BenchmarkEncrypt64KB(b *testing.B) { benchmarkEncrypt(b, 65536) }
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_ = EncryptTo(msg, ad, key, nonce, ct, tag)
-	}
-}
-
-// BenchmarkBatchDecrypt16Blocks benchmarks decryption of exactly 16 blocks (optimal for batch processing)
-func BenchmarkBatchDecrypt16Blocks(b *testing.B) {
-	key := make([]byte, 32)
-	nonce := make([]byte, 16)
-	msg := make([]byte, 16*16) // Exactly 16 blocks (256 bytes)
-	ad := []byte{}
-	ct := make([]byte, len(msg))
-	tag := make([]byte, 16)
-	msgOut := make([]byte, len(msg))
-
-	_ = EncryptTo(msg, ad, key, nonce, ct, tag)
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_ = DecryptTo(ct, tag, ad, key, nonce, msgOut)
-	}
-}
-
-// BenchmarkBatchEncrypt32Blocks benchmarks encryption of 32 blocks (2 batches)
-func BenchmarkBatchEncrypt32Blocks(b *testing.B) {
-	key := make([]byte, 32)
-	nonce := make([]byte, 16)
-	msg := make([]byte, 32*16) // Exactly 32 blocks (512 bytes)
-	ad := []byte{}
-	ct := make([]byte, len(msg))
-	tag := make([]byte, 16)
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_ = EncryptTo(msg, ad, key, nonce, ct, tag)
-	}
-}
-
-// BenchmarkBatchDecrypt32Blocks benchmarks decryption of 32 blocks (2 batches)
-func BenchmarkBatchDecrypt32Blocks(b *testing.B) {
-	key := make([]byte, 32)
-	nonce := make([]byte, 16)
-	msg := make([]byte, 32*16) // Exactly 32 blocks (512 bytes)
-	ad := []byte{}
-	ct := make([]byte, len(msg))
-	tag := make([]byte, 16)
-	msgOut := make([]byte, len(msg))
-
-	_ = EncryptTo(msg, ad, key, nonce, ct, tag)
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_ = DecryptTo(ct, tag, ad, key, nonce, msgOut)
-	}
-}
+// Decryption benchmarks for various sizes
+func BenchmarkDecrypt16B(b *testing.B)  { benchmarkDecrypt(b, 16) }
+func BenchmarkDecrypt32B(b *testing.B)  { benchmarkDecrypt(b, 32) }
+func BenchmarkDecrypt64B(b *testing.B)  { benchmarkDecrypt(b, 64) }
+func BenchmarkDecrypt128B(b *testing.B) { benchmarkDecrypt(b, 128) }
+func BenchmarkDecrypt256B(b *testing.B) { benchmarkDecrypt(b, 256) }
+func BenchmarkDecrypt512B(b *testing.B) { benchmarkDecrypt(b, 512) }
+func BenchmarkDecrypt1KB(b *testing.B)  { benchmarkDecrypt(b, 1024) }
+func BenchmarkDecrypt2KB(b *testing.B)  { benchmarkDecrypt(b, 2048) }
+func BenchmarkDecrypt4KB(b *testing.B)  { benchmarkDecrypt(b, 4096) }
+func BenchmarkDecrypt8KB(b *testing.B)  { benchmarkDecrypt(b, 8192) }
+func BenchmarkDecrypt16KB(b *testing.B) { benchmarkDecrypt(b, 16384) }
+func BenchmarkDecrypt32KB(b *testing.B) { benchmarkDecrypt(b, 32768) }
+func BenchmarkDecrypt64KB(b *testing.B) { benchmarkDecrypt(b, 65536) }
