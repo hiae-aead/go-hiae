@@ -1,6 +1,7 @@
 package hiae
 
 import (
+	"encoding/binary"
 	"errors"
 )
 
@@ -64,7 +65,8 @@ func (h *HiAE) update(xi []byte) {
 	for i := 0; i < BlockLen; i++ {
 		s0XorS1[i] = h.state[idx0][i] ^ h.state[idx1][i]
 	}
-	aeslResult := AESL(s0XorS1[:])
+	var aeslResult [BlockLen]byte
+	aeslInPlace(s0XorS1[:], aeslResult[:])
 
 	var t [BlockLen]byte
 	for i := 0; i < BlockLen; i++ {
@@ -72,7 +74,8 @@ func (h *HiAE) update(xi []byte) {
 	}
 
 	// S0 = AESL(S13) ^ t - direct state access, no allocations
-	aeslS13 := AESL(h.state[idx13][:])
+	var aeslS13 [BlockLen]byte
+	aeslInPlace(h.state[idx13][:], aeslS13[:])
 	for i := 0; i < BlockLen; i++ {
 		h.state[idx0][i] = aeslS13[i] ^ t[i]
 	}
@@ -92,9 +95,12 @@ func (h *HiAE) update(xi []byte) {
 }
 
 // updateEnc implements the UpdateEnc function for encryption
-func (h *HiAE) updateEnc(mi []byte) []byte {
+func (h *HiAE) updateEnc(mi []byte, ci []byte) {
 	if len(mi) != BlockLen {
 		panic("updateEnc: input must be exactly 16 bytes")
+	}
+	if len(ci) != BlockLen {
+		panic("updateEnc: output must be exactly 16 bytes")
 	}
 
 	// Calculate state indices
@@ -109,7 +115,8 @@ func (h *HiAE) updateEnc(mi []byte) []byte {
 	for i := 0; i < BlockLen; i++ {
 		s0XorS1[i] = h.state[idx0][i] ^ h.state[idx1][i]
 	}
-	aeslResult := AESL(s0XorS1[:])
+	var aeslResult [BlockLen]byte
+	aeslInPlace(s0XorS1[:], aeslResult[:])
 
 	var t [BlockLen]byte
 	for i := 0; i < BlockLen; i++ {
@@ -117,13 +124,13 @@ func (h *HiAE) updateEnc(mi []byte) []byte {
 	}
 
 	// ci = t ^ S9 - direct state access, no allocations
-	ci := make([]byte, BlockLen)
 	for i := 0; i < BlockLen; i++ {
 		ci[i] = t[i] ^ h.state[idx9][i]
 	}
 
 	// S0 = AESL(S13) ^ t - direct state access, no allocations
-	aeslS13 := AESL(h.state[idx13][:])
+	var aeslS13 [BlockLen]byte
+	aeslInPlace(h.state[idx13][:], aeslS13[:])
 	for i := 0; i < BlockLen; i++ {
 		h.state[idx0][i] = aeslS13[i] ^ t[i]
 	}
@@ -140,14 +147,15 @@ func (h *HiAE) updateEnc(mi []byte) []byte {
 
 	// Rol()
 	h.rol()
-
-	return ci
 }
 
 // updateDec implements the UpdateDec function for decryption
-func (h *HiAE) updateDec(ci []byte) []byte {
+func (h *HiAE) updateDec(ci []byte, mi []byte) {
 	if len(ci) != BlockLen {
 		panic("updateDec: input must be exactly 16 bytes")
+	}
+	if len(mi) != BlockLen {
+		panic("updateDec: output must be exactly 16 bytes")
 	}
 
 	// Calculate state indices
@@ -168,15 +176,16 @@ func (h *HiAE) updateDec(ci []byte) []byte {
 	for i := 0; i < BlockLen; i++ {
 		s0XorS1[i] = h.state[idx0][i] ^ h.state[idx1][i]
 	}
-	aeslResult := AESL(s0XorS1[:])
+	var aeslResult [BlockLen]byte
+	aeslInPlace(s0XorS1[:], aeslResult[:])
 
-	mi := make([]byte, BlockLen)
 	for i := 0; i < BlockLen; i++ {
 		mi[i] = aeslResult[i] ^ t[i]
 	}
 
 	// S0 = AESL(S13) ^ t - direct state access, no allocations
-	aeslS13 := AESL(h.state[idx13][:])
+	var aeslS13 [BlockLen]byte
+	aeslInPlace(h.state[idx13][:], aeslS13[:])
 	for i := 0; i < BlockLen; i++ {
 		h.state[idx0][i] = aeslS13[i] ^ t[i]
 	}
@@ -193,8 +202,6 @@ func (h *HiAE) updateDec(ci []byte) []byte {
 
 	// Rol()
 	h.rol()
-
-	return mi
 }
 
 // diffuse performs 32 rounds of update for full state diffusion
@@ -276,25 +283,34 @@ func (h *HiAE) absorb(ai []byte) {
 }
 
 // enc encrypts a single message block
-func (h *HiAE) enc(mi []byte) []byte {
+func (h *HiAE) enc(mi []byte, ci []byte) {
 	if len(mi) != BlockLen {
 		panic("enc: input must be exactly 16 bytes")
 	}
-	return h.updateEnc(mi)
+	if len(ci) != BlockLen {
+		panic("enc: output must be exactly 16 bytes")
+	}
+	h.updateEnc(mi, ci)
 }
 
 // dec decrypts a single ciphertext block
-func (h *HiAE) dec(ci []byte) []byte {
+func (h *HiAE) dec(ci []byte, mi []byte) {
 	if len(ci) != BlockLen {
 		panic("dec: input must be exactly 16 bytes")
 	}
-	return h.updateDec(ci)
+	if len(mi) != BlockLen {
+		panic("dec: output must be exactly 16 bytes")
+	}
+	h.updateDec(ci, mi)
 }
 
 // decPartial handles decryption of partial blocks
-func (h *HiAE) decPartial(cn []byte) []byte {
+func (h *HiAE) decPartial(cn []byte, mn []byte) {
 	if len(cn) == 0 || len(cn) >= BlockLen {
 		panic("decPartial: input must be 1-15 bytes")
+	}
+	if len(mn) < len(cn) {
+		panic("decPartial: output buffer too small")
 	}
 
 	// Calculate state indices
@@ -307,7 +323,8 @@ func (h *HiAE) decPartial(cn []byte) []byte {
 	for i := 0; i < BlockLen; i++ {
 		s0XorS1[i] = h.state[idx0][i] ^ h.state[idx1][i]
 	}
-	aeslResult := AESL(s0XorS1[:])
+	var aeslResult [BlockLen]byte
+	aeslInPlace(s0XorS1[:], aeslResult[:])
 
 	// Create zero-padded version of cn - no allocations
 	var cnPadded [BlockLen]byte
@@ -320,49 +337,57 @@ func (h *HiAE) decPartial(cn []byte) []byte {
 	}
 
 	// Step 2: Construct a full 128-bit ciphertext block
-	ci := make([]byte, BlockLen)
-	copy(ci, cn)
+	var ci [BlockLen]byte
+	copy(ci[:], cn)
 	copy(ci[len(cn):], ks[len(cn):])
 
 	// Step 3: Decrypt the full block using standard UpdateDec
-	mi := h.updateDec(ci)
+	var mi [BlockLen]byte
+	h.updateDec(ci[:], mi[:])
 
 	// Step 4: Extract only the decrypted bytes corresponding to the partial input
-	mn := make([]byte, len(cn))
 	copy(mn, mi[:len(cn)])
-
-	return mn
 }
 
 // finalize generates the authentication tag
-func (h *HiAE) finalize(adLenBits, msgLenBits uint64) []byte {
-	// Create length encoding block
-	adLen := le64(adLenBits)
-	msgLen := le64(msgLenBits)
-	t := append(adLen, msgLen...)
+func (h *HiAE) finalize(adLenBits, msgLenBits uint64, tag []byte) {
+	if len(tag) != TagLen {
+		panic("finalize: tag buffer must be exactly 16 bytes")
+	}
+
+	// Create length encoding block - zero allocation
+	var t [BlockLen]byte
+	binary.LittleEndian.PutUint64(t[0:8], adLenBits)
+	binary.LittleEndian.PutUint64(t[8:16], msgLenBits)
 
 	// Diffuse with length block
-	h.diffuse(t)
+	h.diffuse(t[:])
 
 	// Compute tag as XOR of all state blocks - direct state access, no allocations
-	tag := make([]byte, BlockLen)
+	for j := 0; j < BlockLen; j++ {
+		tag[j] = 0
+	}
 	for i := 0; i < StateLen; i++ {
 		idx := (i + h.offset) % StateLen
 		for j := 0; j < BlockLen; j++ {
 			tag[j] ^= h.state[idx][j]
 		}
 	}
-
-	return tag
 }
 
-// Encrypt encrypts a message with associated data
-func Encrypt(msg, ad, key, nonce []byte) ([]byte, []byte, error) {
+// EncryptTo encrypts a message with associated data, writing to provided output buffers (zero-allocation)
+func EncryptTo(msg, ad, key, nonce, ctOut, tagOut []byte) error {
 	if len(key) != KeyLen {
-		return nil, nil, errors.New("key must be 32 bytes")
+		return errors.New("key must be 32 bytes")
 	}
 	if len(nonce) != NonceLen {
-		return nil, nil, errors.New("nonce must be 16 bytes")
+		return errors.New("nonce must be 16 bytes")
+	}
+	if len(ctOut) < len(msg) {
+		return errors.New("ciphertext output buffer too small")
+	}
+	if len(tagOut) < TagLen {
+		return errors.New("tag output buffer too small")
 	}
 
 	h := NewHiAE()
@@ -391,14 +416,13 @@ func Encrypt(msg, ad, key, nonce []byte) ([]byte, []byte, error) {
 
 			// Process the final partial block with padding
 			remainder := len(ad) % BlockLen
-			paddedBlock := make([]byte, BlockLen)
-			copy(paddedBlock, ad[len(ad)-remainder:])
-			h.absorb(paddedBlock)
+			var paddedBlock [BlockLen]byte
+			copy(paddedBlock[:], ad[len(ad)-remainder:])
+			h.absorb(paddedBlock[:])
 		}
 	}
 
-	// Process message
-	ct := make([]byte, 0, len(msg))
+	// Process message - write directly to output buffer
 	if len(msg) > 0 {
 		// Handle case where data is already aligned - no padding needed
 		if len(msg)%BlockLen == 0 {
@@ -406,8 +430,7 @@ func Encrypt(msg, ad, key, nonce []byte) ([]byte, []byte, error) {
 			for i := 0; i < numBlocks; i++ {
 				start := i * BlockLen
 				end := start + BlockLen
-				ctBlock := h.enc(msg[start:end])
-				ct = append(ct, ctBlock...)
+				h.enc(msg[start:end], ctOut[start:end])
 			}
 		} else {
 			// Handle case where padding is needed
@@ -417,29 +440,121 @@ func Encrypt(msg, ad, key, nonce []byte) ([]byte, []byte, error) {
 			for i := 0; i < numFullBlocks; i++ {
 				start := i * BlockLen
 				end := start + BlockLen
-				ctBlock := h.enc(msg[start:end])
-				ct = append(ct, ctBlock...)
+				h.enc(msg[start:end], ctOut[start:end])
 			}
 
 			// Process the final partial block with padding
 			remainder := len(msg) % BlockLen
-			paddedBlock := make([]byte, BlockLen)
-			copy(paddedBlock, msg[len(msg)-remainder:])
-			ctBlock := h.enc(paddedBlock)
-			ct = append(ct, ctBlock...)
+			var paddedBlock [BlockLen]byte
+			copy(paddedBlock[:], msg[len(msg)-remainder:])
+			var ctBlock [BlockLen]byte
+			h.enc(paddedBlock[:], ctBlock[:])
+			copy(ctOut[numFullBlocks*BlockLen:], ctBlock[:remainder])
 		}
 	}
 
 	// Generate tag
-	tag := h.finalize(uint64(len(ad)*8), uint64(len(msg)*8))
+	h.finalize(uint64(len(ad)*8), uint64(len(msg)*8), tagOut)
 
-	// Truncate ciphertext to message length
-	ct = ct[:len(msg)]
+	return nil
+}
+
+// Encrypt encrypts a message with associated data (backward compatibility wrapper)
+func Encrypt(msg, ad, key, nonce []byte) ([]byte, []byte, error) {
+	if len(key) != KeyLen {
+		return nil, nil, errors.New("key must be 32 bytes")
+	}
+	if len(nonce) != NonceLen {
+		return nil, nil, errors.New("nonce must be 16 bytes")
+	}
+
+	ct := make([]byte, len(msg))
+	tag := make([]byte, TagLen)
+
+	err := EncryptTo(msg, ad, key, nonce, ct, tag)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	return ct, tag, nil
 }
 
-// Decrypt decrypts a ciphertext with associated data and verifies authentication
+// DecryptTo decrypts a ciphertext with associated data and verifies authentication, writing to provided output buffer (zero-allocation)
+func DecryptTo(ct, tag, ad, key, nonce, msgOut []byte) error {
+	if len(key) != KeyLen {
+		return errors.New("key must be 32 bytes")
+	}
+	if len(nonce) != NonceLen {
+		return errors.New("nonce must be 16 bytes")
+	}
+	if len(tag) != TagLen {
+		return errors.New("tag must be 16 bytes")
+	}
+	if len(msgOut) < len(ct) {
+		return errors.New("message output buffer too small")
+	}
+
+	h := NewHiAE()
+	h.init(key, nonce)
+
+	// Process associated data
+	if len(ad) > 0 {
+		// Handle case where data is already aligned - no padding needed
+		if len(ad)%BlockLen == 0 {
+			numBlocks := len(ad) / BlockLen
+			for i := 0; i < numBlocks; i++ {
+				start := i * BlockLen
+				end := start + BlockLen
+				h.absorb(ad[start:end])
+			}
+		} else {
+			// Handle case where padding is needed
+			numFullBlocks := len(ad) / BlockLen
+
+			// Process full blocks first
+			for i := 0; i < numFullBlocks; i++ {
+				start := i * BlockLen
+				end := start + BlockLen
+				h.absorb(ad[start:end])
+			}
+
+			// Process the final partial block with padding
+			remainder := len(ad) % BlockLen
+			var paddedBlock [BlockLen]byte
+			copy(paddedBlock[:], ad[len(ad)-remainder:])
+			h.absorb(paddedBlock[:])
+		}
+	}
+
+	// Process ciphertext - write directly to output buffer
+	msgOffset := 0
+	forEachChunk(ct, BlockLen, func(block []byte) {
+		if len(block) == BlockLen {
+			// Full block - use standard decryption
+			h.dec(block, msgOut[msgOffset:msgOffset+BlockLen])
+			msgOffset += BlockLen
+		} else {
+			// Partial block - use partial decryption
+			h.decPartial(block, msgOut[msgOffset:msgOffset+len(block)])
+			msgOffset += len(block)
+		}
+	})
+
+	// Generate expected tag
+	var expectedTag [TagLen]byte
+	h.finalize(uint64(len(ad)*8), uint64(len(ct)*8), expectedTag[:])
+
+	// Verify tag in constant time
+	if !ctEq(tag, expectedTag[:]) {
+		zeroBytes(msgOut[:len(ct)])
+		zeroBytes(expectedTag[:])
+		return errors.New("authentication verification failed")
+	}
+
+	return nil
+}
+
+// Decrypt decrypts a ciphertext with associated data and verifies authentication (backward compatibility wrapper)
 func Decrypt(ct, tag, ad, key, nonce []byte) ([]byte, error) {
 	if len(key) != KeyLen {
 		return nil, errors.New("key must be 32 bytes")
@@ -451,60 +566,11 @@ func Decrypt(ct, tag, ad, key, nonce []byte) ([]byte, error) {
 		return nil, errors.New("tag must be 16 bytes")
 	}
 
-	h := NewHiAE()
-	h.init(key, nonce)
+	msg := make([]byte, len(ct))
 
-	// Process associated data
-	if len(ad) > 0 {
-		// Handle case where data is already aligned - no padding needed
-		if len(ad)%BlockLen == 0 {
-			numBlocks := len(ad) / BlockLen
-			for i := 0; i < numBlocks; i++ {
-				start := i * BlockLen
-				end := start + BlockLen
-				h.absorb(ad[start:end])
-			}
-		} else {
-			// Handle case where padding is needed
-			numFullBlocks := len(ad) / BlockLen
-
-			// Process full blocks first
-			for i := 0; i < numFullBlocks; i++ {
-				start := i * BlockLen
-				end := start + BlockLen
-				h.absorb(ad[start:end])
-			}
-
-			// Process the final partial block with padding
-			remainder := len(ad) % BlockLen
-			paddedBlock := make([]byte, BlockLen)
-			copy(paddedBlock, ad[len(ad)-remainder:])
-			h.absorb(paddedBlock)
-		}
-	}
-
-	// Process ciphertext
-	msg := make([]byte, 0, len(ct))
-	forEachChunk(ct, BlockLen, func(block []byte) {
-		if len(block) == BlockLen {
-			// Full block - use standard decryption
-			msgBlock := h.dec(block)
-			msg = append(msg, msgBlock...)
-		} else {
-			// Partial block - use partial decryption
-			partialMsg := h.decPartial(block)
-			msg = append(msg, partialMsg...)
-		}
-	})
-
-	// Generate expected tag
-	expectedTag := h.finalize(uint64(len(ad)*8), uint64(len(msg)*8))
-
-	// Verify tag in constant time
-	if !ctEq(tag, expectedTag) {
-		zeroBytes(msg)
-		zeroBytes(expectedTag)
-		return nil, errors.New("authentication verification failed")
+	err := DecryptTo(ct, tag, ad, key, nonce, msg)
+	if err != nil {
+		return nil, err
 	}
 
 	return msg, nil

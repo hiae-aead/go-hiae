@@ -414,3 +414,36 @@ func BenchmarkDecrypt(b *testing.B) {
 		_, _ = Decrypt(ct, tag, ad, key, nonce)
 	}
 }
+
+// BenchmarkEncryptTo benchmarks the zero-allocation encryption operation
+func BenchmarkEncryptTo(b *testing.B) {
+	key := make([]byte, 32)
+	nonce := make([]byte, 16)
+	msg := make([]byte, 1024) // 1KB message
+	ad := []byte{}
+	ct := make([]byte, 1024)
+	tag := make([]byte, 16)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = EncryptTo(msg, ad, key, nonce, ct, tag)
+	}
+}
+
+// BenchmarkDecryptTo benchmarks the zero-allocation decryption operation
+func BenchmarkDecryptTo(b *testing.B) {
+	key := make([]byte, 32)
+	nonce := make([]byte, 16)
+	msg := make([]byte, 1024) // 1KB message
+	ad := []byte{}
+	ct := make([]byte, 1024)
+	tag := make([]byte, 16)
+	msgOut := make([]byte, 1024)
+
+	_ = EncryptTo(msg, ad, key, nonce, ct, tag)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = DecryptTo(ct, tag, ad, key, nonce, msgOut)
+	}
+}
