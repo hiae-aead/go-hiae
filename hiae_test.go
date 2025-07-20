@@ -447,3 +447,69 @@ func BenchmarkDecryptTo(b *testing.B) {
 		_ = DecryptTo(ct, tag, ad, key, nonce, msgOut)
 	}
 }
+
+// BenchmarkBatchEncrypt16Blocks benchmarks encryption of exactly 16 blocks (optimal for batch processing)
+func BenchmarkBatchEncrypt16Blocks(b *testing.B) {
+	key := make([]byte, 32)
+	nonce := make([]byte, 16)
+	msg := make([]byte, 16*16) // Exactly 16 blocks (256 bytes)
+	ad := []byte{}
+	ct := make([]byte, len(msg))
+	tag := make([]byte, 16)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = EncryptTo(msg, ad, key, nonce, ct, tag)
+	}
+}
+
+// BenchmarkBatchDecrypt16Blocks benchmarks decryption of exactly 16 blocks (optimal for batch processing)
+func BenchmarkBatchDecrypt16Blocks(b *testing.B) {
+	key := make([]byte, 32)
+	nonce := make([]byte, 16)
+	msg := make([]byte, 16*16) // Exactly 16 blocks (256 bytes)
+	ad := []byte{}
+	ct := make([]byte, len(msg))
+	tag := make([]byte, 16)
+	msgOut := make([]byte, len(msg))
+
+	_ = EncryptTo(msg, ad, key, nonce, ct, tag)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = DecryptTo(ct, tag, ad, key, nonce, msgOut)
+	}
+}
+
+// BenchmarkBatchEncrypt32Blocks benchmarks encryption of 32 blocks (2 batches)
+func BenchmarkBatchEncrypt32Blocks(b *testing.B) {
+	key := make([]byte, 32)
+	nonce := make([]byte, 16)
+	msg := make([]byte, 32*16) // Exactly 32 blocks (512 bytes)
+	ad := []byte{}
+	ct := make([]byte, len(msg))
+	tag := make([]byte, 16)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = EncryptTo(msg, ad, key, nonce, ct, tag)
+	}
+}
+
+// BenchmarkBatchDecrypt32Blocks benchmarks decryption of 32 blocks (2 batches)
+func BenchmarkBatchDecrypt32Blocks(b *testing.B) {
+	key := make([]byte, 32)
+	nonce := make([]byte, 16)
+	msg := make([]byte, 32*16) // Exactly 32 blocks (512 bytes)
+	ad := []byte{}
+	ct := make([]byte, len(msg))
+	tag := make([]byte, 16)
+	msgOut := make([]byte, len(msg))
+
+	_ = EncryptTo(msg, ad, key, nonce, ct, tag)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = DecryptTo(ct, tag, ad, key, nonce, msgOut)
+	}
+}

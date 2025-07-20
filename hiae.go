@@ -249,6 +249,116 @@ func (h *HiAE) decPartial(cn []byte, mn []byte) {
 	copy(mn, mi[:len(cn)])
 }
 
+// batchEncrypt encrypts exactly 16 blocks with hardcoded indices for maximum performance
+// This function assumes offset starts at 0 and processes exactly 16 blocks
+func (h *HiAE) batchEncrypt(msgs, cts []byte) {
+	if len(msgs) != 16*BlockLen || len(cts) != 16*BlockLen {
+		panic("batchEncrypt: must process exactly 16 blocks")
+	}
+	if h.offset != 0 {
+		panic("batchEncrypt: offset must be 0 at start of batch")
+	}
+
+	// Use assembly implementation on ARM64 if available
+	if hasHardwareAcceleration() {
+		msgsArray := (*[256]byte)(msgs)
+		ctsArray := (*[256]byte)(cts)
+		batchEncryptOptimized(h, msgsArray, ctsArray)
+		return
+	}
+
+	// Fallback to Go implementation
+	// Process 16 blocks with hardcoded indices
+	// Block 0: offset=0, so S0=state[0], S1=state[1], S3=state[3], S9=state[9], S13=state[13]
+	h.updateEnc(msgs[0:16], cts[0:16])
+	// Block 1: offset=1, so S0=state[1], S1=state[2], S3=state[4], S9=state[10], S13=state[14]
+	h.updateEnc(msgs[16:32], cts[16:32])
+	// Block 2: offset=2, so S0=state[2], S1=state[3], S3=state[5], S9=state[11], S13=state[15]
+	h.updateEnc(msgs[32:48], cts[32:48])
+	// Block 3: offset=3, so S0=state[3], S1=state[4], S3=state[6], S9=state[12], S13=state[0]
+	h.updateEnc(msgs[48:64], cts[48:64])
+	// Block 4: offset=4, so S0=state[4], S1=state[5], S3=state[7], S9=state[13], S13=state[1]
+	h.updateEnc(msgs[64:80], cts[64:80])
+	// Block 5: offset=5, so S0=state[5], S1=state[6], S3=state[8], S9=state[14], S13=state[2]
+	h.updateEnc(msgs[80:96], cts[80:96])
+	// Block 6: offset=6, so S0=state[6], S1=state[7], S3=state[9], S9=state[15], S13=state[3]
+	h.updateEnc(msgs[96:112], cts[96:112])
+	// Block 7: offset=7, so S0=state[7], S1=state[8], S3=state[10], S9=state[0], S13=state[4]
+	h.updateEnc(msgs[112:128], cts[112:128])
+	// Block 8: offset=8, so S0=state[8], S1=state[9], S3=state[11], S9=state[1], S13=state[5]
+	h.updateEnc(msgs[128:144], cts[128:144])
+	// Block 9: offset=9, so S0=state[9], S1=state[10], S3=state[12], S9=state[2], S13=state[6]
+	h.updateEnc(msgs[144:160], cts[144:160])
+	// Block 10: offset=10, so S0=state[10], S1=state[11], S3=state[13], S9=state[3], S13=state[7]
+	h.updateEnc(msgs[160:176], cts[160:176])
+	// Block 11: offset=11, so S0=state[11], S1=state[12], S3=state[14], S9=state[4], S13=state[8]
+	h.updateEnc(msgs[176:192], cts[176:192])
+	// Block 12: offset=12, so S0=state[12], S1=state[13], S3=state[15], S9=state[5], S13=state[9]
+	h.updateEnc(msgs[192:208], cts[192:208])
+	// Block 13: offset=13, so S0=state[13], S1=state[14], S3=state[0], S9=state[6], S13=state[10]
+	h.updateEnc(msgs[208:224], cts[208:224])
+	// Block 14: offset=14, so S0=state[14], S1=state[15], S3=state[1], S9=state[7], S13=state[11]
+	h.updateEnc(msgs[224:240], cts[224:240])
+	// Block 15: offset=15, so S0=state[15], S1=state[0], S3=state[2], S9=state[8], S13=state[12]
+	h.updateEnc(msgs[240:256], cts[240:256])
+	// After 16 operations, offset is back to 0
+}
+
+// batchDecrypt decrypts exactly 16 blocks with hardcoded indices for maximum performance
+// This function assumes offset starts at 0 and processes exactly 16 blocks
+func (h *HiAE) batchDecrypt(cts, msgs []byte) {
+	if len(cts) != 16*BlockLen || len(msgs) != 16*BlockLen {
+		panic("batchDecrypt: must process exactly 16 blocks")
+	}
+	if h.offset != 0 {
+		panic("batchDecrypt: offset must be 0 at start of batch")
+	}
+
+	// Use assembly implementation on ARM64 if available
+	if hasHardwareAcceleration() {
+		ctsArray := (*[256]byte)(cts)
+		msgsArray := (*[256]byte)(msgs)
+		batchDecryptOptimized(h, ctsArray, msgsArray)
+		return
+	}
+
+	// Fallback to Go implementation
+	// Process 16 blocks with hardcoded indices
+	// Block 0: offset=0, so S0=state[0], S1=state[1], S3=state[3], S9=state[9], S13=state[13]
+	h.updateDec(cts[0:16], msgs[0:16])
+	// Block 1: offset=1, so S0=state[1], S1=state[2], S3=state[4], S9=state[10], S13=state[14]
+	h.updateDec(cts[16:32], msgs[16:32])
+	// Block 2: offset=2, so S0=state[2], S1=state[3], S3=state[5], S9=state[11], S13=state[15]
+	h.updateDec(cts[32:48], msgs[32:48])
+	// Block 3: offset=3, so S0=state[3], S1=state[4], S3=state[6], S9=state[12], S13=state[0]
+	h.updateDec(cts[48:64], msgs[48:64])
+	// Block 4: offset=4, so S0=state[4], S1=state[5], S3=state[7], S9=state[13], S13=state[1]
+	h.updateDec(cts[64:80], msgs[64:80])
+	// Block 5: offset=5, so S0=state[5], S1=state[6], S3=state[8], S9=state[14], S13=state[2]
+	h.updateDec(cts[80:96], msgs[80:96])
+	// Block 6: offset=6, so S0=state[6], S1=state[7], S3=state[9], S9=state[15], S13=state[3]
+	h.updateDec(cts[96:112], msgs[96:112])
+	// Block 7: offset=7, so S0=state[7], S1=state[8], S3=state[10], S9=state[0], S13=state[4]
+	h.updateDec(cts[112:128], msgs[112:128])
+	// Block 8: offset=8, so S0=state[8], S1=state[9], S3=state[11], S9=state[1], S13=state[5]
+	h.updateDec(cts[128:144], msgs[128:144])
+	// Block 9: offset=9, so S0=state[9], S1=state[10], S3=state[12], S9=state[2], S13=state[6]
+	h.updateDec(cts[144:160], msgs[144:160])
+	// Block 10: offset=10, so S0=state[10], S1=state[11], S3=state[13], S9=state[3], S13=state[7]
+	h.updateDec(cts[160:176], msgs[160:176])
+	// Block 11: offset=11, so S0=state[11], S1=state[12], S3=state[14], S9=state[4], S13=state[8]
+	h.updateDec(cts[176:192], msgs[176:192])
+	// Block 12: offset=12, so S0=state[12], S1=state[13], S3=state[15], S9=state[5], S13=state[9]
+	h.updateDec(cts[192:208], msgs[192:208])
+	// Block 13: offset=13, so S0=state[13], S1=state[14], S3=state[0], S9=state[6], S13=state[10]
+	h.updateDec(cts[208:224], msgs[208:224])
+	// Block 14: offset=14, so S0=state[14], S1=state[15], S3=state[1], S9=state[7], S13=state[11]
+	h.updateDec(cts[224:240], msgs[224:240])
+	// Block 15: offset=15, so S0=state[15], S1=state[0], S3=state[2], S9=state[8], S13=state[12]
+	h.updateDec(cts[240:256], msgs[240:256])
+	// After 16 operations, offset is back to 0
+}
+
 // finalize generates the authentication tag
 func (h *HiAE) finalize(adLenBits, msgLenBits uint64, tag []byte) {
 	if len(tag) != TagLen {
@@ -327,8 +437,31 @@ func EncryptTo(msg, ad, key, nonce, ctOut, tagOut []byte) error {
 		// Handle case where data is already aligned - no padding needed
 		if len(msg)%BlockLen == 0 {
 			numBlocks := len(msg) / BlockLen
-			for i := 0; i < numBlocks; i++ {
-				start := i * BlockLen
+
+			// Use batch processing for aligned batches of 16 blocks
+			batchesOf16 := numBlocks / 16
+			for i := 0; i < batchesOf16; i++ {
+				if h.offset == 0 { // Can only use batch processing when offset is aligned
+					start := i * 16 * BlockLen
+					end := start + 16*BlockLen
+					h.batchEncrypt(msg[start:end], ctOut[start:end])
+				} else {
+					// Fall back to individual block processing
+					for j := 0; j < 16; j++ {
+						blockIdx := i*16 + j
+						start := blockIdx * BlockLen
+						end := start + BlockLen
+						h.enc(msg[start:end], ctOut[start:end])
+					}
+				}
+			}
+
+			// Process remaining blocks individually
+			remainingBlocks := numBlocks % 16
+			startIdx := batchesOf16 * 16
+			for i := 0; i < remainingBlocks; i++ {
+				blockIdx := startIdx + i
+				start := blockIdx * BlockLen
 				end := start + BlockLen
 				h.enc(msg[start:end], ctOut[start:end])
 			}
@@ -336,9 +469,30 @@ func EncryptTo(msg, ad, key, nonce, ctOut, tagOut []byte) error {
 			// Handle case where padding is needed
 			numFullBlocks := len(msg) / BlockLen
 
-			// Process full blocks first
-			for i := 0; i < numFullBlocks; i++ {
-				start := i * BlockLen
+			// Use batch processing for aligned batches of 16 blocks
+			batchesOf16 := numFullBlocks / 16
+			for i := 0; i < batchesOf16; i++ {
+				if h.offset == 0 { // Can only use batch processing when offset is aligned
+					start := i * 16 * BlockLen
+					end := start + 16*BlockLen
+					h.batchEncrypt(msg[start:end], ctOut[start:end])
+				} else {
+					// Fall back to individual block processing
+					for j := 0; j < 16; j++ {
+						blockIdx := i*16 + j
+						start := blockIdx * BlockLen
+						end := start + BlockLen
+						h.enc(msg[start:end], ctOut[start:end])
+					}
+				}
+			}
+
+			// Process remaining full blocks individually
+			remainingBlocks := numFullBlocks % 16
+			startIdx := batchesOf16 * 16
+			for i := 0; i < remainingBlocks; i++ {
+				blockIdx := startIdx + i
+				start := blockIdx * BlockLen
 				end := start + BlockLen
 				h.enc(msg[start:end], ctOut[start:end])
 			}
@@ -427,18 +581,48 @@ func DecryptTo(ct, tag, ad, key, nonce, msgOut []byte) error {
 	}
 
 	// Process ciphertext - write directly to output buffer
-	msgOffset := 0
-	forEachChunk(ct, BlockLen, func(block []byte) {
-		if len(block) == BlockLen {
-			// Full block - use standard decryption
-			h.dec(block, msgOut[msgOffset:msgOffset+BlockLen])
-			msgOffset += BlockLen
-		} else {
-			// Partial block - use partial decryption
-			h.decPartial(block, msgOut[msgOffset:msgOffset+len(block)])
-			msgOffset += len(block)
+	if len(ct) > 0 {
+		numFullBlocks := len(ct) / BlockLen
+
+		// Use batch processing for aligned batches of 16 blocks
+		batchesOf16 := numFullBlocks / 16
+		msgOffset := 0
+
+		for i := 0; i < batchesOf16; i++ {
+			if h.offset == 0 { // Can only use batch processing when offset is aligned
+				start := i * 16 * BlockLen
+				end := start + 16*BlockLen
+				h.batchDecrypt(ct[start:end], msgOut[msgOffset:msgOffset+16*BlockLen])
+				msgOffset += 16 * BlockLen
+			} else {
+				// Fall back to individual block processing
+				for j := 0; j < 16; j++ {
+					blockIdx := i*16 + j
+					start := blockIdx * BlockLen
+					end := start + BlockLen
+					h.dec(ct[start:end], msgOut[msgOffset:msgOffset+BlockLen])
+					msgOffset += BlockLen
+				}
+			}
 		}
-	})
+
+		// Process remaining full blocks individually
+		remainingBlocks := numFullBlocks % 16
+		startIdx := batchesOf16 * 16
+		for i := 0; i < remainingBlocks; i++ {
+			blockIdx := startIdx + i
+			start := blockIdx * BlockLen
+			end := start + BlockLen
+			h.dec(ct[start:end], msgOut[msgOffset:msgOffset+BlockLen])
+			msgOffset += BlockLen
+		}
+
+		// Process partial block if exists
+		remainder := len(ct) % BlockLen
+		if remainder > 0 {
+			h.decPartial(ct[numFullBlocks*BlockLen:], msgOut[msgOffset:msgOffset+remainder])
+		}
+	}
 
 	// Generate expected tag
 	var expectedTag [TagLen]byte

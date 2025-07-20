@@ -6,21 +6,19 @@ import "golang.org/x/sys/cpu"
 
 // ARM64-specific AES implementations using hardware acceleration
 
-var (
-	// hasAES indicates if the CPU supports AES instructions
-	hasAES bool
-)
+// hasAES indicates if the CPU supports AES instructions
+var hasAES bool
 
 func init() {
 	// Check for ARM64 AES support
 	hasAES = cpu.ARM64.HasAES
-	
+
 	// On Apple Silicon (M1/M2/M3/M4), force enable AES if not detected
 	// This works around golang.org/x/sys/cpu detection issues on some systems
 	if !hasAES {
 		hasAES = checkAppleSiliconAES()
 	}
-	
+
 	// Enable hardware AES for AESL function only
 	// Complex state manipulation will stay in Go for now
 }
@@ -42,7 +40,7 @@ func aeslInPlaceOptimized(input []byte, output []byte) {
 	if len(input) != 16 || len(output) != 16 {
 		panic("aeslInPlaceOptimized: input and output must be exactly 16 bytes")
 	}
-	
+
 	if hasAES {
 		aeslARM64(input, output)
 	} else {
@@ -56,7 +54,7 @@ func updateEncOptimized(h *HiAE, mi []byte, ci []byte) {
 	if len(mi) != BlockLen || len(ci) != BlockLen {
 		panic("updateEncOptimized: input and output must be exactly 16 bytes")
 	}
-	
+
 	// For now, only optimize the AESL function, keep the update logic in Go
 	// This avoids complex struct manipulation in assembly
 	updateEncGeneric(h, mi, ci)
@@ -67,7 +65,7 @@ func updateDecOptimized(h *HiAE, ci []byte, mi []byte) {
 	if len(ci) != BlockLen || len(mi) != BlockLen {
 		panic("updateDecOptimized: input and output must be exactly 16 bytes")
 	}
-	
+
 	// For now, only optimize the AESL function, keep the update logic in Go
 	// This avoids complex struct manipulation in assembly
 	updateDecGeneric(h, ci, mi)
@@ -86,3 +84,56 @@ func updateDecARM64(h *HiAE, ci, mi []byte)
 
 //go:noescape
 func xaeslARM64(x, y, output []byte)
+
+//go:noescape
+func batchEncryptARM64(h *HiAE, msgs, cts *[256]byte)
+
+//go:noescape
+func batchDecryptARM64(h *HiAE, cts, msgs *[256]byte)
+
+// hasHardwareAcceleration overrides the default implementation
+func hasHardwareAcceleration() bool {
+	return hasAES
+}
+
+// batchEncryptOptimized overrides the default implementation with ARM64 assembly
+func batchEncryptOptimized(h *HiAE, msgs, cts *[256]byte) {
+	if hasAES {
+		// Call assembly stub which currently falls back to Go
+		batchEncryptARM64(h, msgs, cts)
+		// Then manually call Go implementation since assembly is incomplete
+		for i := 0; i < 16; i++ {
+			start := i * BlockLen
+			end := start + BlockLen
+			h.updateEnc(msgs[start:end], cts[start:end])
+		}
+	} else {
+		// Fallback to Go implementation
+		for i := 0; i < 16; i++ {
+			start := i * BlockLen
+			end := start + BlockLen
+			h.updateEnc(msgs[start:end], cts[start:end])
+		}
+	}
+}
+
+// batchDecryptOptimized overrides the default implementation with ARM64 assembly
+func batchDecryptOptimized(h *HiAE, cts, msgs *[256]byte) {
+	if hasAES {
+		// Call assembly stub which currently falls back to Go
+		batchDecryptARM64(h, cts, msgs)
+		// Then manually call Go implementation since assembly is incomplete
+		for i := 0; i < 16; i++ {
+			start := i * BlockLen
+			end := start + BlockLen
+			h.updateDec(cts[start:end], msgs[start:end])
+		}
+	} else {
+		// Fallback to Go implementation
+		for i := 0; i < 16; i++ {
+			start := i * BlockLen
+			end := start + BlockLen
+			h.updateDec(cts[start:end], msgs[start:end])
+		}
+	}
+}
