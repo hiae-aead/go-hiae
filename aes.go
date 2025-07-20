@@ -153,19 +153,5 @@ func AESL(block []byte) []byte {
 
 // aeslInPlace performs AESL transformation writing result to output buffer (zero-allocation)
 func aeslInPlace(input []byte, output []byte) {
-	if len(input) != 16 || len(output) != 16 {
-		panic("aeslInPlace: input and output must be exactly 16 bytes")
-	}
-
-	state := bytesToState(input)
-	state = subBytes(state)
-	state = shiftRows(state)
-	state = mixColumns(state)
-
-	// Write directly to output buffer instead of allocating
-	for i := 0; i < 4; i++ {
-		for j := 0; j < 4; j++ {
-			output[i*4+j] = state[j][i]
-		}
-	}
+	aeslInPlaceOptimized(input, output)
 }
