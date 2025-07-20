@@ -97,18 +97,6 @@ tag := cipher.finalize(adLenBits, msgLenBits)
 - **Maximum Message Length**: 2^61 - 1 bytes
 - **Maximum Associated Data Length**: 2^61 - 1 bytes
 
-## Performance
-
-On Apple M4 (ARM64):
-- **Encryption**: ~17,228 ns/op for 1KB messages (~59 MB/s)
-- **Decryption**: ~17,308 ns/op for 1KB messages (~59 MB/s)
-
-The implementation includes several optimizations:
-- Cycling index approach for state rotation (avoids copying 2KB on each rotation)
-- Efficient XOR operations on byte slices
-- Precomputed AES S-box and multiplication tables
-- Minimal memory allocations
-
 ## Testing
 
 Run the complete test suite:
