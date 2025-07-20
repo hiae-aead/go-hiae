@@ -162,47 +162,6 @@ func forEachChunk(data []byte, blockSize int, fn func([]byte)) {
 	}
 }
 
-// forEachChunkZeroPadded iterates over zero-padded chunks without intermediate allocation
-// This replaces the pattern: split(zeroPad(data, blockSize), blockSize)
-// Matches the exact behavior: empty data produces no blocks, non-empty data gets padded
-func forEachChunkZeroPadded(data []byte, blockSize int, fn func([]byte)) {
-	if blockSize <= 0 {
-		panic("forEachChunkZeroPadded: blockSize must be positive")
-	}
-
-	// Handle special case: empty data produces zero blocks (matches zeroPad + split behavior)
-	if len(data) == 0 {
-		return // No blocks to process
-	}
-
-	// Handle case where data is already aligned - no padding needed
-	if len(data)%blockSize == 0 {
-		numBlocks := len(data) / blockSize
-		for i := 0; i < numBlocks; i++ {
-			start := i * blockSize
-			end := start + blockSize
-			fn(data[start:end])
-		}
-		return
-	}
-
-	// Handle case where padding is needed
-	numFullBlocks := len(data) / blockSize
-
-	// Process full blocks first
-	for i := 0; i < numFullBlocks; i++ {
-		start := i * blockSize
-		end := start + blockSize
-		fn(data[start:end])
-	}
-
-	// Process the final partial block with padding
-	remainder := len(data) % blockSize
-	paddedBlock := make([]byte, blockSize)
-	copy(paddedBlock, data[len(data)-remainder:])
-	fn(paddedBlock)
-}
-
 // processChunksToBuffer efficiently processes chunks and collects output
 // Pre-allocates output buffer to avoid repeated allocations
 func processChunksToBuffer(data []byte, blockSize int, expectedOutputLen int, fn func([]byte) []byte) []byte {

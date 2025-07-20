@@ -47,58 +47,45 @@ func (h *HiAE) getStateIndex(logical int) int {
 	return (logical + h.offset) % StateLen
 }
 
-// getState returns a copy of the state block at logical position i
-func (h *HiAE) getState(i int) []byte {
-	idx := h.getStateIndex(i)
-	block := make([]byte, BlockLen)
-	copy(block, h.state[idx][:])
-	return block
-}
-
-// setState sets the state block at logical position i
-func (h *HiAE) setState(i int, block []byte) {
-	if len(block) != BlockLen {
-		panic("setState: block must be exactly 16 bytes")
-	}
-	idx := h.getStateIndex(i)
-	copy(h.state[idx][:], block)
-}
-
-// xorState XORs a block with the state at logical position i
-func (h *HiAE) xorState(i int, block []byte) {
-	if len(block) != BlockLen {
-		panic("xorState: block must be exactly 16 bytes")
-	}
-	idx := h.getStateIndex(i)
-	for j := 0; j < BlockLen; j++ {
-		h.state[idx][j] ^= block[j]
-	}
-}
-
 // update implements the core Update function
 func (h *HiAE) update(xi []byte) {
 	if len(xi) != BlockLen {
 		panic("update: input must be exactly 16 bytes")
 	}
 
-	// t = AESL(S0 ^ S1) ^ xi
-	s0 := h.getState(0)
-	s1 := h.getState(1)
-	s0XorS1 := xorBytes(s0, s1)
-	aeslResult := AESL(s0XorS1)
-	t := xorBytes(aeslResult, xi)
+	// Calculate state indices
+	idx0 := h.offset % StateLen
+	idx1 := (1 + h.offset) % StateLen
+	idx3 := (3 + h.offset) % StateLen
+	idx13 := (13 + h.offset) % StateLen
 
-	// S0 = AESL(S13) ^ t
-	s13 := h.getState(13)
-	aeslS13 := AESL(s13)
-	newS0 := xorBytes(aeslS13, t)
-	h.setState(0, newS0)
+	// t = AESL(S0 ^ S1) ^ xi - direct state access, no allocations
+	var s0XorS1 [BlockLen]byte
+	for i := 0; i < BlockLen; i++ {
+		s0XorS1[i] = h.state[idx0][i] ^ h.state[idx1][i]
+	}
+	aeslResult := AESL(s0XorS1[:])
 
-	// S3 = S3 ^ xi
-	h.xorState(3, xi)
+	var t [BlockLen]byte
+	for i := 0; i < BlockLen; i++ {
+		t[i] = aeslResult[i] ^ xi[i]
+	}
 
-	// S13 = S13 ^ xi
-	h.xorState(13, xi)
+	// S0 = AESL(S13) ^ t - direct state access, no allocations
+	aeslS13 := AESL(h.state[idx13][:])
+	for i := 0; i < BlockLen; i++ {
+		h.state[idx0][i] = aeslS13[i] ^ t[i]
+	}
+
+	// S3 = S3 ^ xi - direct state access, no allocations
+	for i := 0; i < BlockLen; i++ {
+		h.state[idx3][i] ^= xi[i]
+	}
+
+	// S13 = S13 ^ xi - direct state access, no allocations
+	for i := 0; i < BlockLen; i++ {
+		h.state[idx13][i] ^= xi[i]
+	}
 
 	// Rol()
 	h.rol()
@@ -110,28 +97,46 @@ func (h *HiAE) updateEnc(mi []byte) []byte {
 		panic("updateEnc: input must be exactly 16 bytes")
 	}
 
-	// t = AESL(S0 ^ S1) ^ mi
-	s0 := h.getState(0)
-	s1 := h.getState(1)
-	s0XorS1 := xorBytes(s0, s1)
-	aeslResult := AESL(s0XorS1)
-	t := xorBytes(aeslResult, mi)
+	// Calculate state indices
+	idx0 := h.offset % StateLen
+	idx1 := (1 + h.offset) % StateLen
+	idx3 := (3 + h.offset) % StateLen
+	idx9 := (9 + h.offset) % StateLen
+	idx13 := (13 + h.offset) % StateLen
 
-	// ci = t ^ S9
-	s9 := h.getState(9)
-	ci := xorBytes(t, s9)
+	// t = AESL(S0 ^ S1) ^ mi - direct state access, no allocations
+	var s0XorS1 [BlockLen]byte
+	for i := 0; i < BlockLen; i++ {
+		s0XorS1[i] = h.state[idx0][i] ^ h.state[idx1][i]
+	}
+	aeslResult := AESL(s0XorS1[:])
 
-	// S0 = AESL(S13) ^ t
-	s13 := h.getState(13)
-	aeslS13 := AESL(s13)
-	newS0 := xorBytes(aeslS13, t)
-	h.setState(0, newS0)
+	var t [BlockLen]byte
+	for i := 0; i < BlockLen; i++ {
+		t[i] = aeslResult[i] ^ mi[i]
+	}
 
-	// S3 = S3 ^ mi
-	h.xorState(3, mi)
+	// ci = t ^ S9 - direct state access, no allocations
+	ci := make([]byte, BlockLen)
+	for i := 0; i < BlockLen; i++ {
+		ci[i] = t[i] ^ h.state[idx9][i]
+	}
 
-	// S13 = S13 ^ mi
-	h.xorState(13, mi)
+	// S0 = AESL(S13) ^ t - direct state access, no allocations
+	aeslS13 := AESL(h.state[idx13][:])
+	for i := 0; i < BlockLen; i++ {
+		h.state[idx0][i] = aeslS13[i] ^ t[i]
+	}
+
+	// S3 = S3 ^ mi - direct state access, no allocations
+	for i := 0; i < BlockLen; i++ {
+		h.state[idx3][i] ^= mi[i]
+	}
+
+	// S13 = S13 ^ mi - direct state access, no allocations
+	for i := 0; i < BlockLen; i++ {
+		h.state[idx13][i] ^= mi[i]
+	}
 
 	// Rol()
 	h.rol()
@@ -145,28 +150,46 @@ func (h *HiAE) updateDec(ci []byte) []byte {
 		panic("updateDec: input must be exactly 16 bytes")
 	}
 
-	// t = ci ^ S9
-	s9 := h.getState(9)
-	t := xorBytes(ci, s9)
+	// Calculate state indices
+	idx0 := h.offset % StateLen
+	idx1 := (1 + h.offset) % StateLen
+	idx3 := (3 + h.offset) % StateLen
+	idx9 := (9 + h.offset) % StateLen
+	idx13 := (13 + h.offset) % StateLen
 
-	// mi = AESL(S0 ^ S1) ^ t
-	s0 := h.getState(0)
-	s1 := h.getState(1)
-	s0XorS1 := xorBytes(s0, s1)
-	aeslResult := AESL(s0XorS1)
-	mi := xorBytes(aeslResult, t)
+	// t = ci ^ S9 - direct state access, no allocations
+	var t [BlockLen]byte
+	for i := 0; i < BlockLen; i++ {
+		t[i] = ci[i] ^ h.state[idx9][i]
+	}
 
-	// S0 = AESL(S13) ^ t
-	s13 := h.getState(13)
-	aeslS13 := AESL(s13)
-	newS0 := xorBytes(aeslS13, t)
-	h.setState(0, newS0)
+	// mi = AESL(S0 ^ S1) ^ t - direct state access, no allocations
+	var s0XorS1 [BlockLen]byte
+	for i := 0; i < BlockLen; i++ {
+		s0XorS1[i] = h.state[idx0][i] ^ h.state[idx1][i]
+	}
+	aeslResult := AESL(s0XorS1[:])
 
-	// S3 = S3 ^ mi
-	h.xorState(3, mi)
+	mi := make([]byte, BlockLen)
+	for i := 0; i < BlockLen; i++ {
+		mi[i] = aeslResult[i] ^ t[i]
+	}
 
-	// S13 = S13 ^ mi
-	h.xorState(13, mi)
+	// S0 = AESL(S13) ^ t - direct state access, no allocations
+	aeslS13 := AESL(h.state[idx13][:])
+	for i := 0; i < BlockLen; i++ {
+		h.state[idx0][i] = aeslS13[i] ^ t[i]
+	}
+
+	// S3 = S3 ^ mi - direct state access, no allocations
+	for i := 0; i < BlockLen; i++ {
+		h.state[idx3][i] ^= mi[i]
+	}
+
+	// S13 = S13 ^ mi - direct state access, no allocations
+	for i := 0; i < BlockLen; i++ {
+		h.state[idx13][i] ^= mi[i]
+	}
 
 	// Rol()
 	h.rol()
@@ -193,36 +216,55 @@ func (h *HiAE) init(key, nonce []byte) {
 		panic("init: nonce must be exactly 16 bytes")
 	}
 
-	// Split key into k0 and k1
-	k0 := make([]byte, BlockLen)
-	k1 := make([]byte, BlockLen)
-	copy(k0, key[:BlockLen])
-	copy(k1, key[BlockLen:])
+	// Split key into k0 and k1 - use slices to avoid allocation
+	k0 := key[:BlockLen]
+	k1 := key[BlockLen:]
 
-	// Initialize state as per specification
-	h.setState(0, C0)
-	h.setState(1, k1)
-	h.setState(2, nonce)
-	h.setState(3, C0)
-	h.setState(4, make([]byte, BlockLen)) // all zeros
-	h.setState(5, xorBytes(nonce, k0))
-	h.setState(6, make([]byte, BlockLen)) // all zeros
-	h.setState(7, C1)
-	h.setState(8, xorBytes(nonce, k1))
-	h.setState(9, make([]byte, BlockLen)) // all zeros
-	h.setState(10, k1)
-	h.setState(11, C0)
-	h.setState(12, C1)
-	h.setState(13, k1)
-	h.setState(14, make([]byte, BlockLen)) // all zeros
-	h.setState(15, xorBytes(C0, C1))
+	// Initialize state as per specification - direct state access, no allocations
+	copy(h.state[0][:], C0)
+	copy(h.state[1][:], k1)
+	copy(h.state[2][:], nonce)
+	copy(h.state[3][:], C0)
+	for i := 0; i < BlockLen; i++ {
+		h.state[4][i] = 0 // all zeros
+	}
+	// h.setState(5, xorBytes(nonce, k0)) -> direct XOR
+	for i := 0; i < BlockLen; i++ {
+		h.state[5][i] = nonce[i] ^ k0[i]
+	}
+	for i := 0; i < BlockLen; i++ {
+		h.state[6][i] = 0 // all zeros
+	}
+	copy(h.state[7][:], C1)
+	// h.setState(8, xorBytes(nonce, k1)) -> direct XOR
+	for i := 0; i < BlockLen; i++ {
+		h.state[8][i] = nonce[i] ^ k1[i]
+	}
+	for i := 0; i < BlockLen; i++ {
+		h.state[9][i] = 0 // all zeros
+	}
+	copy(h.state[10][:], k1)
+	copy(h.state[11][:], C0)
+	copy(h.state[12][:], C1)
+	copy(h.state[13][:], k1)
+	for i := 0; i < BlockLen; i++ {
+		h.state[14][i] = 0 // all zeros
+	}
+	// h.setState(15, xorBytes(C0, C1)) -> direct XOR
+	for i := 0; i < BlockLen; i++ {
+		h.state[15][i] = C0[i] ^ C1[i]
+	}
 
 	// Diffuse with C0
 	h.diffuse(C0)
 
-	// Final XORs
-	h.xorState(9, k0)
-	h.xorState(13, k1)
+	// Final XORs - direct state access, no allocations
+	for i := 0; i < BlockLen; i++ {
+		h.state[9][i] ^= k0[i]
+	}
+	for i := 0; i < BlockLen; i++ {
+		h.state[13][i] ^= k1[i]
+	}
 }
 
 // absorb processes associated data
@@ -255,18 +297,27 @@ func (h *HiAE) decPartial(cn []byte) []byte {
 		panic("decPartial: input must be 1-15 bytes")
 	}
 
-	// Step 1: Recover the keystream that would encrypt a full zero block
-	s0 := h.getState(0)
-	s1 := h.getState(1)
-	s0XorS1 := xorBytes(s0, s1)
-	aeslResult := AESL(s0XorS1)
+	// Calculate state indices
+	idx0 := h.offset % StateLen
+	idx1 := (1 + h.offset) % StateLen
+	idx9 := (9 + h.offset) % StateLen
 
-	// Create zero-padded version of cn
-	cnPadded := make([]byte, BlockLen)
-	copy(cnPadded, cn)
+	// Step 1: Recover the keystream that would encrypt a full zero block - no allocations
+	var s0XorS1 [BlockLen]byte
+	for i := 0; i < BlockLen; i++ {
+		s0XorS1[i] = h.state[idx0][i] ^ h.state[idx1][i]
+	}
+	aeslResult := AESL(s0XorS1[:])
 
-	s9 := h.getState(9)
-	ks := xorBytes(xorBytes(aeslResult, cnPadded), s9)
+	// Create zero-padded version of cn - no allocations
+	var cnPadded [BlockLen]byte
+	copy(cnPadded[:], cn)
+
+	// ks = aeslResult ^ cnPadded ^ S9 - no allocations
+	var ks [BlockLen]byte
+	for i := 0; i < BlockLen; i++ {
+		ks[i] = aeslResult[i] ^ cnPadded[i] ^ h.state[idx9][i]
+	}
 
 	// Step 2: Construct a full 128-bit ciphertext block
 	ci := make([]byte, BlockLen)
@@ -293,12 +344,12 @@ func (h *HiAE) finalize(adLenBits, msgLenBits uint64) []byte {
 	// Diffuse with length block
 	h.diffuse(t)
 
-	// Compute tag as XOR of all state blocks
+	// Compute tag as XOR of all state blocks - direct state access, no allocations
 	tag := make([]byte, BlockLen)
 	for i := 0; i < StateLen; i++ {
-		si := h.getState(i)
+		idx := (i + h.offset) % StateLen
 		for j := 0; j < BlockLen; j++ {
-			tag[j] ^= si[j]
+			tag[j] ^= h.state[idx][j]
 		}
 	}
 
@@ -318,16 +369,66 @@ func Encrypt(msg, ad, key, nonce []byte) ([]byte, []byte, error) {
 	h.init(key, nonce)
 
 	// Process associated data
-	forEachChunkZeroPadded(ad, BlockLen, func(block []byte) {
-		h.absorb(block)
-	})
+	if len(ad) > 0 {
+		// Handle case where data is already aligned - no padding needed
+		if len(ad)%BlockLen == 0 {
+			numBlocks := len(ad) / BlockLen
+			for i := 0; i < numBlocks; i++ {
+				start := i * BlockLen
+				end := start + BlockLen
+				h.absorb(ad[start:end])
+			}
+		} else {
+			// Handle case where padding is needed
+			numFullBlocks := len(ad) / BlockLen
+
+			// Process full blocks first
+			for i := 0; i < numFullBlocks; i++ {
+				start := i * BlockLen
+				end := start + BlockLen
+				h.absorb(ad[start:end])
+			}
+
+			// Process the final partial block with padding
+			remainder := len(ad) % BlockLen
+			paddedBlock := make([]byte, BlockLen)
+			copy(paddedBlock, ad[len(ad)-remainder:])
+			h.absorb(paddedBlock)
+		}
+	}
 
 	// Process message
 	ct := make([]byte, 0, len(msg))
-	forEachChunkZeroPadded(msg, BlockLen, func(block []byte) {
-		ctBlock := h.enc(block)
-		ct = append(ct, ctBlock...)
-	})
+	if len(msg) > 0 {
+		// Handle case where data is already aligned - no padding needed
+		if len(msg)%BlockLen == 0 {
+			numBlocks := len(msg) / BlockLen
+			for i := 0; i < numBlocks; i++ {
+				start := i * BlockLen
+				end := start + BlockLen
+				ctBlock := h.enc(msg[start:end])
+				ct = append(ct, ctBlock...)
+			}
+		} else {
+			// Handle case where padding is needed
+			numFullBlocks := len(msg) / BlockLen
+
+			// Process full blocks first
+			for i := 0; i < numFullBlocks; i++ {
+				start := i * BlockLen
+				end := start + BlockLen
+				ctBlock := h.enc(msg[start:end])
+				ct = append(ct, ctBlock...)
+			}
+
+			// Process the final partial block with padding
+			remainder := len(msg) % BlockLen
+			paddedBlock := make([]byte, BlockLen)
+			copy(paddedBlock, msg[len(msg)-remainder:])
+			ctBlock := h.enc(paddedBlock)
+			ct = append(ct, ctBlock...)
+		}
+	}
 
 	// Generate tag
 	tag := h.finalize(uint64(len(ad)*8), uint64(len(msg)*8))
@@ -354,9 +455,33 @@ func Decrypt(ct, tag, ad, key, nonce []byte) ([]byte, error) {
 	h.init(key, nonce)
 
 	// Process associated data
-	forEachChunkZeroPadded(ad, BlockLen, func(block []byte) {
-		h.absorb(block)
-	})
+	if len(ad) > 0 {
+		// Handle case where data is already aligned - no padding needed
+		if len(ad)%BlockLen == 0 {
+			numBlocks := len(ad) / BlockLen
+			for i := 0; i < numBlocks; i++ {
+				start := i * BlockLen
+				end := start + BlockLen
+				h.absorb(ad[start:end])
+			}
+		} else {
+			// Handle case where padding is needed
+			numFullBlocks := len(ad) / BlockLen
+
+			// Process full blocks first
+			for i := 0; i < numFullBlocks; i++ {
+				start := i * BlockLen
+				end := start + BlockLen
+				h.absorb(ad[start:end])
+			}
+
+			// Process the final partial block with padding
+			remainder := len(ad) % BlockLen
+			paddedBlock := make([]byte, BlockLen)
+			copy(paddedBlock, ad[len(ad)-remainder:])
+			h.absorb(paddedBlock)
+		}
+	}
 
 	// Process ciphertext
 	msg := make([]byte, 0, len(ct))
