@@ -318,18 +318,16 @@ func Encrypt(msg, ad, key, nonce []byte) ([]byte, []byte, error) {
 	h.init(key, nonce)
 
 	// Process associated data
-	adBlocks := split(zeroPad(ad, BlockLen), BlockLen)
-	for _, block := range adBlocks {
+	forEachChunkZeroPadded(ad, BlockLen, func(block []byte) {
 		h.absorb(block)
-	}
+	})
 
 	// Process message
 	ct := make([]byte, 0, len(msg))
-	msgBlocks := split(zeroPad(msg, BlockLen), BlockLen)
-	for _, block := range msgBlocks {
+	forEachChunkZeroPadded(msg, BlockLen, func(block []byte) {
 		ctBlock := h.enc(block)
 		ct = append(ct, ctBlock...)
-	}
+	})
 
 	// Generate tag
 	tag := h.finalize(uint64(len(ad)*8), uint64(len(msg)*8))
@@ -356,26 +354,23 @@ func Decrypt(ct, tag, ad, key, nonce []byte) ([]byte, error) {
 	h.init(key, nonce)
 
 	// Process associated data
-	adBlocks := split(zeroPad(ad, BlockLen), BlockLen)
-	for _, block := range adBlocks {
+	forEachChunkZeroPadded(ad, BlockLen, func(block []byte) {
 		h.absorb(block)
-	}
+	})
 
 	// Process ciphertext
 	msg := make([]byte, 0, len(ct))
-	ctBlocks := split(ct, BlockLen)
-	for _, block := range ctBlocks {
-		msgBlock := h.dec(block)
-		msg = append(msg, msgBlock...)
-	}
-
-	// Handle partial block
-	remainder := len(ct) % BlockLen
-	if remainder != 0 {
-		partialCt := ct[len(ct)-remainder:]
-		partialMsg := h.decPartial(partialCt)
-		msg = append(msg, partialMsg...)
-	}
+	forEachChunk(ct, BlockLen, func(block []byte) {
+		if len(block) == BlockLen {
+			// Full block - use standard decryption
+			msgBlock := h.dec(block)
+			msg = append(msg, msgBlock...)
+		} else {
+			// Partial block - use partial decryption
+			partialMsg := h.decPartial(block)
+			msg = append(msg, partialMsg...)
+		}
+	})
 
 	// Generate expected tag
 	expectedTag := h.finalize(uint64(len(ad)*8), uint64(len(msg)*8))
