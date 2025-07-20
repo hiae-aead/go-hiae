@@ -99,14 +99,8 @@ func hasHardwareAcceleration() bool {
 // batchEncryptOptimized overrides the default implementation with ARM64 assembly
 func batchEncryptOptimized(h *HiAE, msgs, cts *[256]byte) {
 	if hasAES {
-		// Call assembly stub which currently falls back to Go
+		// Call completed ARM64 assembly implementation
 		batchEncryptARM64(h, msgs, cts)
-		// Then manually call Go implementation since assembly is incomplete
-		for i := 0; i < 16; i++ {
-			start := i * BlockLen
-			end := start + BlockLen
-			h.updateEnc(msgs[start:end], cts[start:end])
-		}
 	} else {
 		// Fallback to Go implementation
 		for i := 0; i < 16; i++ {
@@ -120,14 +114,8 @@ func batchEncryptOptimized(h *HiAE, msgs, cts *[256]byte) {
 // batchDecryptOptimized overrides the default implementation with ARM64 assembly
 func batchDecryptOptimized(h *HiAE, cts, msgs *[256]byte) {
 	if hasAES {
-		// Call assembly stub which currently falls back to Go
+		// Call completed ARM64 assembly implementation
 		batchDecryptARM64(h, cts, msgs)
-		// Then manually call Go implementation since assembly is incomplete
-		for i := 0; i < 16; i++ {
-			start := i * BlockLen
-			end := start + BlockLen
-			h.updateDec(cts[start:end], msgs[start:end])
-		}
 	} else {
 		// Fallback to Go implementation
 		for i := 0; i < 16; i++ {
