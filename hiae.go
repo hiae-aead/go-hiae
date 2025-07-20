@@ -37,13 +37,10 @@ func NewHiAE() *HiAE {
 	return &HiAE{}
 }
 
-// rol performs left rotation of the state by one position
-// Using cycling index optimization to avoid copying data
 func (h *HiAE) rol() {
 	h.offset = (h.offset + 1) % StateLen
 }
 
-// getStateIndex returns the physical index for a logical state position
 func (h *HiAE) getStateIndex(logical int) int {
 	return (logical + h.offset) % StateLen
 }
@@ -54,13 +51,10 @@ func (h *HiAE) update(xi []byte) {
 		panic("update: input must be exactly 16 bytes")
 	}
 
-	// Calculate state indices
 	idx0 := h.offset % StateLen
 	idx1 := (1 + h.offset) % StateLen
 	idx3 := (3 + h.offset) % StateLen
 	idx13 := (13 + h.offset) % StateLen
-
-	// t = AESL(S0 ^ S1) ^ xi - direct state access, no allocations
 	var s0XorS1 [BlockLen]byte
 	for i := 0; i < BlockLen; i++ {
 		s0XorS1[i] = h.state[idx0][i] ^ h.state[idx1][i]
@@ -73,24 +67,19 @@ func (h *HiAE) update(xi []byte) {
 		t[i] = aeslResult[i] ^ xi[i]
 	}
 
-	// S0 = AESL(S13) ^ t - direct state access, no allocations
 	var aeslS13 [BlockLen]byte
 	aeslInPlace(h.state[idx13][:], aeslS13[:])
 	for i := 0; i < BlockLen; i++ {
 		h.state[idx0][i] = aeslS13[i] ^ t[i]
 	}
 
-	// S3 = S3 ^ xi - direct state access, no allocations
 	for i := 0; i < BlockLen; i++ {
 		h.state[idx3][i] ^= xi[i]
 	}
 
-	// S13 = S13 ^ xi - direct state access, no allocations
 	for i := 0; i < BlockLen; i++ {
 		h.state[idx13][i] ^= xi[i]
 	}
-
-	// Rol()
 	h.rol()
 }
 
@@ -213,12 +202,9 @@ func (h *HiAE) decPartial(cn []byte, mn []byte) {
 		panic("decPartial: output buffer too small")
 	}
 
-	// Calculate state indices
 	idx0 := h.offset % StateLen
 	idx1 := (1 + h.offset) % StateLen
 	idx9 := (9 + h.offset) % StateLen
-
-	// Step 1: Recover the keystream that would encrypt a full zero block - no allocations
 	var s0XorS1 [BlockLen]byte
 	for i := 0; i < BlockLen; i++ {
 		s0XorS1[i] = h.state[idx0][i] ^ h.state[idx1][i]
@@ -226,11 +212,8 @@ func (h *HiAE) decPartial(cn []byte, mn []byte) {
 	var aeslResult [BlockLen]byte
 	aeslInPlace(s0XorS1[:], aeslResult[:])
 
-	// Create zero-padded version of cn - no allocations
 	var cnPadded [BlockLen]byte
 	copy(cnPadded[:], cn)
-
-	// ks = aeslResult ^ cnPadded ^ S9 - no allocations
 	var ks [BlockLen]byte
 	for i := 0; i < BlockLen; i++ {
 		ks[i] = aeslResult[i] ^ cnPadded[i] ^ h.state[idx9][i]
@@ -259,49 +242,28 @@ func (h *HiAE) batchEncrypt(msgs, cts []byte) {
 		panic("batchEncrypt: offset must be 0 at start of batch")
 	}
 
-	// Use assembly implementation on ARM64 if available
 	if hasHardwareAcceleration() {
 		msgsArray := (*[256]byte)(msgs)
 		ctsArray := (*[256]byte)(cts)
 		batchEncryptOptimized(h, msgsArray, ctsArray)
 		return
 	}
-
-	// Fallback to Go implementation
-	// Process 16 blocks with hardcoded indices
-	// Block 0: offset=0, so S0=state[0], S1=state[1], S3=state[3], S9=state[9], S13=state[13]
 	h.updateEnc(msgs[0:16], cts[0:16])
-	// Block 1: offset=1, so S0=state[1], S1=state[2], S3=state[4], S9=state[10], S13=state[14]
 	h.updateEnc(msgs[16:32], cts[16:32])
-	// Block 2: offset=2, so S0=state[2], S1=state[3], S3=state[5], S9=state[11], S13=state[15]
 	h.updateEnc(msgs[32:48], cts[32:48])
-	// Block 3: offset=3, so S0=state[3], S1=state[4], S3=state[6], S9=state[12], S13=state[0]
 	h.updateEnc(msgs[48:64], cts[48:64])
-	// Block 4: offset=4, so S0=state[4], S1=state[5], S3=state[7], S9=state[13], S13=state[1]
 	h.updateEnc(msgs[64:80], cts[64:80])
-	// Block 5: offset=5, so S0=state[5], S1=state[6], S3=state[8], S9=state[14], S13=state[2]
 	h.updateEnc(msgs[80:96], cts[80:96])
-	// Block 6: offset=6, so S0=state[6], S1=state[7], S3=state[9], S9=state[15], S13=state[3]
 	h.updateEnc(msgs[96:112], cts[96:112])
-	// Block 7: offset=7, so S0=state[7], S1=state[8], S3=state[10], S9=state[0], S13=state[4]
 	h.updateEnc(msgs[112:128], cts[112:128])
-	// Block 8: offset=8, so S0=state[8], S1=state[9], S3=state[11], S9=state[1], S13=state[5]
 	h.updateEnc(msgs[128:144], cts[128:144])
-	// Block 9: offset=9, so S0=state[9], S1=state[10], S3=state[12], S9=state[2], S13=state[6]
 	h.updateEnc(msgs[144:160], cts[144:160])
-	// Block 10: offset=10, so S0=state[10], S1=state[11], S3=state[13], S9=state[3], S13=state[7]
 	h.updateEnc(msgs[160:176], cts[160:176])
-	// Block 11: offset=11, so S0=state[11], S1=state[12], S3=state[14], S9=state[4], S13=state[8]
 	h.updateEnc(msgs[176:192], cts[176:192])
-	// Block 12: offset=12, so S0=state[12], S1=state[13], S3=state[15], S9=state[5], S13=state[9]
 	h.updateEnc(msgs[192:208], cts[192:208])
-	// Block 13: offset=13, so S0=state[13], S1=state[14], S3=state[0], S9=state[6], S13=state[10]
 	h.updateEnc(msgs[208:224], cts[208:224])
-	// Block 14: offset=14, so S0=state[14], S1=state[15], S3=state[1], S9=state[7], S13=state[11]
 	h.updateEnc(msgs[224:240], cts[224:240])
-	// Block 15: offset=15, so S0=state[15], S1=state[0], S3=state[2], S9=state[8], S13=state[12]
 	h.updateEnc(msgs[240:256], cts[240:256])
-	// After 16 operations, offset is back to 0
 }
 
 // batchDecrypt decrypts exactly 16 blocks with hardcoded indices for maximum performance
@@ -314,7 +276,6 @@ func (h *HiAE) batchDecrypt(cts, msgs []byte) {
 		panic("batchDecrypt: offset must be 0 at start of batch")
 	}
 
-	// Use assembly implementation on ARM64 if available
 	if hasHardwareAcceleration() {
 		ctsArray := (*[256]byte)(cts)
 		msgsArray := (*[256]byte)(msgs)
@@ -322,41 +283,22 @@ func (h *HiAE) batchDecrypt(cts, msgs []byte) {
 		return
 	}
 
-	// Fallback to Go implementation
-	// Process 16 blocks with hardcoded indices
-	// Block 0: offset=0, so S0=state[0], S1=state[1], S3=state[3], S9=state[9], S13=state[13]
 	h.updateDec(cts[0:16], msgs[0:16])
-	// Block 1: offset=1, so S0=state[1], S1=state[2], S3=state[4], S9=state[10], S13=state[14]
 	h.updateDec(cts[16:32], msgs[16:32])
-	// Block 2: offset=2, so S0=state[2], S1=state[3], S3=state[5], S9=state[11], S13=state[15]
 	h.updateDec(cts[32:48], msgs[32:48])
-	// Block 3: offset=3, so S0=state[3], S1=state[4], S3=state[6], S9=state[12], S13=state[0]
 	h.updateDec(cts[48:64], msgs[48:64])
-	// Block 4: offset=4, so S0=state[4], S1=state[5], S3=state[7], S9=state[13], S13=state[1]
 	h.updateDec(cts[64:80], msgs[64:80])
-	// Block 5: offset=5, so S0=state[5], S1=state[6], S3=state[8], S9=state[14], S13=state[2]
 	h.updateDec(cts[80:96], msgs[80:96])
-	// Block 6: offset=6, so S0=state[6], S1=state[7], S3=state[9], S9=state[15], S13=state[3]
 	h.updateDec(cts[96:112], msgs[96:112])
-	// Block 7: offset=7, so S0=state[7], S1=state[8], S3=state[10], S9=state[0], S13=state[4]
 	h.updateDec(cts[112:128], msgs[112:128])
-	// Block 8: offset=8, so S0=state[8], S1=state[9], S3=state[11], S9=state[1], S13=state[5]
 	h.updateDec(cts[128:144], msgs[128:144])
-	// Block 9: offset=9, so S0=state[9], S1=state[10], S3=state[12], S9=state[2], S13=state[6]
 	h.updateDec(cts[144:160], msgs[144:160])
-	// Block 10: offset=10, so S0=state[10], S1=state[11], S3=state[13], S9=state[3], S13=state[7]
 	h.updateDec(cts[160:176], msgs[160:176])
-	// Block 11: offset=11, so S0=state[11], S1=state[12], S3=state[14], S9=state[4], S13=state[8]
 	h.updateDec(cts[176:192], msgs[176:192])
-	// Block 12: offset=12, so S0=state[12], S1=state[13], S3=state[15], S9=state[5], S13=state[9]
 	h.updateDec(cts[192:208], msgs[192:208])
-	// Block 13: offset=13, so S0=state[13], S1=state[14], S3=state[0], S9=state[6], S13=state[10]
 	h.updateDec(cts[208:224], msgs[208:224])
-	// Block 14: offset=14, so S0=state[14], S1=state[15], S3=state[1], S9=state[7], S13=state[11]
 	h.updateDec(cts[224:240], msgs[224:240])
-	// Block 15: offset=15, so S0=state[15], S1=state[0], S3=state[2], S9=state[8], S13=state[12]
 	h.updateDec(cts[240:256], msgs[240:256])
-	// After 16 operations, offset is back to 0
 }
 
 // finalize generates the authentication tag
@@ -365,15 +307,11 @@ func (h *HiAE) finalize(adLenBits, msgLenBits uint64, tag []byte) {
 		panic("finalize: tag buffer must be exactly 16 bytes")
 	}
 
-	// Create length encoding block - zero allocation
 	var t [BlockLen]byte
 	binary.LittleEndian.PutUint64(t[0:8], adLenBits)
 	binary.LittleEndian.PutUint64(t[8:16], msgLenBits)
 
-	// Diffuse with length block
 	h.diffuse(t[:])
-
-	// Compute tag as XOR of all state blocks - direct state access, no allocations
 	for j := 0; j < BlockLen; j++ {
 		tag[j] = 0
 	}

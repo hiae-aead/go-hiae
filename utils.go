@@ -67,7 +67,6 @@ func truncate(data []byte, bits int) []byte {
 	result := make([]byte, bytes)
 	copy(result, data[:bytes])
 
-	// If we need to mask the last byte
 	if bits%8 != 0 && bytes > 0 {
 		mask := byte(0xFF << (8 - (bits % 8)))
 		result[bytes-1] &= mask
@@ -98,7 +97,6 @@ func tail(data []byte, bits int) []byte {
 	result := make([]byte, bytes)
 	copy(result, data[startByte:])
 
-	// If we need to mask the first byte
 	if bits%8 != 0 && bytes > 0 {
 		shift := 8 - (bits % 8)
 		mask := byte(0xFF >> shift)
@@ -148,14 +146,12 @@ func forEachChunk(data []byte, blockSize int, fn func([]byte)) {
 
 	numFullBlocks := len(data) / blockSize
 
-	// Process full blocks
 	for i := 0; i < numFullBlocks; i++ {
 		start := i * blockSize
 		end := start + blockSize
 		fn(data[start:end])
 	}
 
-	// Handle partial block if present
 	remainder := len(data) % blockSize
 	if remainder != 0 {
 		fn(data[len(data)-remainder:])
@@ -173,7 +169,6 @@ func processChunksToBuffer(data []byte, blockSize int, expectedOutputLen int, fn
 
 	numFullBlocks := len(data) / blockSize
 
-	// Process full blocks
 	for i := 0; i < numFullBlocks; i++ {
 		start := i * blockSize
 		end := start + blockSize

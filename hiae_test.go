@@ -316,7 +316,6 @@ func TestHiAEVectors(t *testing.T) {
 
 // TestAESL verifies the AESL function with the example from the specification
 func TestAESL(t *testing.T) {
-	// Test vector from specification appendix
 	input := hexDecode("00112233445566778899aabbccddeeff")
 	expected := hexDecode("6379e6d9f467fb76ad063cf4d2eb8aa3")
 
@@ -329,7 +328,6 @@ func TestAESL(t *testing.T) {
 
 // TestUtilityFunctions tests various utility functions
 func TestUtilityFunctions(t *testing.T) {
-	// Test XOR
 	a := []byte{0x01, 0x02, 0x03}
 	b := []byte{0x04, 0x05, 0x06}
 	expected := []byte{0x05, 0x07, 0x05}
@@ -339,7 +337,6 @@ func TestUtilityFunctions(t *testing.T) {
 			hexEncode(expected), hexEncode(result))
 	}
 
-	// Test le64
 	result64 := le64(0x0123456789abcdef)
 	expected64 := []byte{0xef, 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01}
 	if hexEncode(result64) != hexEncode(expected64) {
@@ -347,7 +344,6 @@ func TestUtilityFunctions(t *testing.T) {
 			hexEncode(expected64), hexEncode(result64))
 	}
 
-	// Test zero padding
 	data := []byte{0x01, 0x02, 0x03}
 	padded := zeroPad(data, 8)
 	expectedPad := []byte{0x01, 0x02, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00}
@@ -364,21 +360,18 @@ func TestKeyNonceLengths(t *testing.T) {
 	validAd := []byte{}
 	validMsg := []byte{}
 
-	// Test invalid key length
 	invalidKey := make([]byte, 31)
 	_, _, err := Encrypt(validMsg, validAd, invalidKey, validNonce)
 	if err == nil {
 		t.Error("Expected error for invalid key length")
 	}
 
-	// Test invalid nonce length
 	invalidNonce := make([]byte, 15)
 	_, _, err = Encrypt(validMsg, validAd, validKey, invalidNonce)
 	if err == nil {
 		t.Error("Expected error for invalid nonce length")
 	}
 
-	// Test invalid tag length in decryption
 	ct := []byte{}
 	invalidTag := make([]byte, 15)
 	_, err = Decrypt(ct, invalidTag, validAd, validKey, validNonce)
@@ -401,7 +394,6 @@ func benchmarkEncrypt(b *testing.B, size int) {
 		_ = EncryptTo(msg, ad, key, nonce, ct, tag)
 	}
 
-	// Calculate throughput in Mb/s
 	bytesProcessed := int64(b.N) * int64(size)
 	mbitsProcessed := float64(bytesProcessed) * 8 / 1e6
 	mbitsPerSec := mbitsProcessed / b.Elapsed().Seconds()
@@ -425,7 +417,6 @@ func benchmarkDecrypt(b *testing.B, size int) {
 		_ = DecryptTo(ct, tag, ad, key, nonce, msgOut)
 	}
 
-	// Calculate throughput in Mb/s
 	bytesProcessed := int64(b.N) * int64(size)
 	mbitsProcessed := float64(bytesProcessed) * 8 / 1e6
 	mbitsPerSec := mbitsProcessed / b.Elapsed().Seconds()

@@ -92,17 +92,13 @@ func subBytes(state [4][4]byte) [4][4]byte {
 	return state
 }
 
-// shiftRows applies the AES ShiftRows transformation
 func shiftRows(state [4][4]byte) [4][4]byte {
-	// Row 0: no shift
-	// Row 1: shift left by 1
 	temp := state[1][0]
 	state[1][0] = state[1][1]
 	state[1][1] = state[1][2]
 	state[1][2] = state[1][3]
 	state[1][3] = temp
 
-	// Row 2: shift left by 2
 	temp0 := state[2][0]
 	temp1 := state[2][1]
 	state[2][0] = state[2][2]
@@ -110,7 +106,6 @@ func shiftRows(state [4][4]byte) [4][4]byte {
 	state[2][2] = temp0
 	state[2][3] = temp1
 
-	// Row 3: shift left by 3 (equivalent to shift right by 1)
 	temp = state[3][3]
 	state[3][3] = state[3][2]
 	state[3][2] = state[3][1]
@@ -137,7 +132,6 @@ func mixColumns(state [4][4]byte) [4][4]byte {
 }
 
 // AESL performs a single AES round without AddRoundKey
-// This is the core function: SubBytes + ShiftRows + MixColumns
 func AESL(block []byte) []byte {
 	if len(block) != 16 {
 		panic("AESL: block must be exactly 16 bytes")
@@ -151,7 +145,7 @@ func AESL(block []byte) []byte {
 	return stateToBytes(state)
 }
 
-// aeslInPlace performs AESL transformation writing result to output buffer (zero-allocation)
+// aeslInPlace performs AESL transformation writing result to output buffer
 func aeslInPlace(input []byte, output []byte) {
 	aeslInPlaceOptimized(input, output)
 }
