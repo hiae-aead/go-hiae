@@ -93,13 +93,17 @@ func (h *HiAE) updateDec(ci []byte, mi []byte) {
 	updateDecOptimized(h, ci, mi)
 }
 
-// diffuse performs 32 rounds of update for full state diffusion
-func (h *HiAE) diffuse(x []byte) {
-	if len(x) != BlockLen {
-		panic("diffuse: input must be exactly 16 bytes")
+// diffuse performs 32 rounds of update for full state diffusion, alternating between x0 and x1
+func (h *HiAE) diffuse(x0, x1 []byte) {
+	if len(x0) != BlockLen {
+		panic("diffuse: x0 must be exactly 16 bytes")
 	}
-	for i := 0; i < 32; i++ {
-		h.update(x)
+	if len(x1) != BlockLen {
+		panic("diffuse: x1 must be exactly 16 bytes")
+	}
+	for i := 0; i < 16; i++ {
+		h.update(x0)
+		h.update(x1)
 	}
 }
 
@@ -118,28 +122,25 @@ func (h *HiAE) init(key, nonce []byte) {
 
 	// Initialize state as per specification - direct state access, no allocations
 	copy(h.state[0][:], C0)
-	copy(h.state[1][:], k1)
-	copy(h.state[2][:], nonce)
-	copy(h.state[3][:], C0)
+	copy(h.state[1][:], k0)
+	copy(h.state[2][:], C0)
+	copy(h.state[3][:], nonce)
 	for i := 0; i < BlockLen; i++ {
 		h.state[4][i] = 0 // all zeros
 	}
-	// h.setState(5, xorBytes(nonce, k0)) -> direct XOR
-	for i := 0; i < BlockLen; i++ {
-		h.state[5][i] = nonce[i] ^ k0[i]
-	}
+	copy(h.state[5][:], k0)
 	for i := 0; i < BlockLen; i++ {
 		h.state[6][i] = 0 // all zeros
 	}
 	copy(h.state[7][:], C1)
-	// h.setState(8, xorBytes(nonce, k1)) -> direct XOR
-	for i := 0; i < BlockLen; i++ {
-		h.state[8][i] = nonce[i] ^ k1[i]
-	}
+	copy(h.state[8][:], k1)
 	for i := 0; i < BlockLen; i++ {
 		h.state[9][i] = 0 // all zeros
 	}
-	copy(h.state[10][:], k1)
+	// h.setState(10, xorBytes(nonce, k1)) -> direct XOR
+	for i := 0; i < BlockLen; i++ {
+		h.state[10][i] = nonce[i] ^ k1[i]
+	}
 	copy(h.state[11][:], C0)
 	copy(h.state[12][:], C1)
 	copy(h.state[13][:], k1)
@@ -151,16 +152,8 @@ func (h *HiAE) init(key, nonce []byte) {
 		h.state[15][i] = C0[i] ^ C1[i]
 	}
 
-	// Diffuse with C0
-	h.diffuse(C0)
-
-	// Final XORs - direct state access, no allocations
-	for i := 0; i < BlockLen; i++ {
-		h.state[9][i] ^= k0[i]
-	}
-	for i := 0; i < BlockLen; i++ {
-		h.state[13][i] ^= k1[i]
-	}
+	// Diffuse with k0 and k1
+	h.diffuse(k0, k1)
 }
 
 // absorb processes associated data
@@ -311,7 +304,7 @@ func (h *HiAE) finalize(adLenBits, msgLenBits uint64, tag []byte) {
 	binary.LittleEndian.PutUint64(t[0:8], adLenBits)
 	binary.LittleEndian.PutUint64(t[8:16], msgLenBits)
 
-	h.diffuse(t[:])
+	h.diffuse(t[:], t[:])
 	for j := 0; j < BlockLen; j++ {
 		tag[j] = 0
 	}
