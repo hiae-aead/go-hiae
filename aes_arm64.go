@@ -1,109 +1,58 @@
-//go:build arm64
+//go:build arm64 && !purego
 
 package hiae
 
 import "golang.org/x/sys/cpu"
 
-// ARM64-specific AES implementations using hardware acceleration
-
-// hasAES indicates if the CPU supports AES instructions
-var hasAES bool
-
 func init() {
-	hasAES = cpu.ARM64.HasAES
-
-	if !hasAES {
-		hasAES = checkAppleSiliconAES()
+	if cpu.ARM64.HasAES {
+		useAESLAsm = true
+		encNI = hiaeEncNI
+		decNI = hiaeDecNI
 	}
 }
 
-func checkAppleSiliconAES() bool {
-	return true
-}
+// SupportsHardwareAES reports the ARM crypto extension.
+func SupportsHardwareAES() bool { return useAESLAsm }
 
-// SupportsHardwareAES returns true if hardware AES acceleration is available
-func SupportsHardwareAES() bool {
-	return hasAES
-}
-
-// aeslInPlaceOptimized performs AESL transformation using ARM64 hardware acceleration
-func aeslInPlaceOptimized(input []byte, output []byte) {
+func aeslInPlaceOptimized(input, output []byte) {
 	if len(input) != 16 || len(output) != 16 {
 		panic("aeslInPlaceOptimized: input and output must be exactly 16 bytes")
 	}
-
-	if hasAES {
-		aeslARM64(input, output)
-	} else {
-		aeslInPlaceGeneric(input, output)
+	if useAESLAsm {
+		aeslAsm(&output[0], &input[0])
+		return
 	}
+	aeslInPlaceGeneric(input, output)
 }
 
-// updateEncOptimized performs ARM64-optimized encryption update
-func updateEncOptimized(h *HiAE, mi []byte, ci []byte) {
+func updateEncOptimized(h *HiAE, mi, ci []byte) {
 	if len(mi) != BlockLen || len(ci) != BlockLen {
 		panic("updateEncOptimized: input and output must be exactly 16 bytes")
 	}
-
+	if encNI != nil {
+		encNI(&h.state[0][0], &h.offset, &mi[0], &ci[0], 1)
+		return
+	}
 	updateEncGeneric(h, mi, ci)
 }
 
-// updateDecOptimized performs ARM64-optimized decryption update
-func updateDecOptimized(h *HiAE, ci []byte, mi []byte) {
+func updateDecOptimized(h *HiAE, ci, mi []byte) {
 	if len(ci) != BlockLen || len(mi) != BlockLen {
 		panic("updateDecOptimized: input and output must be exactly 16 bytes")
 	}
-
+	if decNI != nil {
+		decNI(&h.state[0][0], &h.offset, &ci[0], &mi[0], 1)
+		return
+	}
 	updateDecGeneric(h, ci, mi)
 }
 
-// Assembly function declarations - implemented in aes_arm64.s
+//go:noescape
+func aeslAsm(dst, src *byte)
 
 //go:noescape
-func aeslARM64(input, output []byte)
+func hiaeEncNI(s *byte, off *int, in, out *byte, n uint64)
 
 //go:noescape
-func updateEncARM64(h *HiAE, mi, ci []byte)
-
-//go:noescape
-func updateDecARM64(h *HiAE, ci, mi []byte)
-
-//go:noescape
-func xaeslARM64(x, y, output []byte)
-
-//go:noescape
-func batchEncryptARM64(h *HiAE, msgs, cts *[256]byte)
-
-//go:noescape
-func batchDecryptARM64(h *HiAE, cts, msgs *[256]byte)
-
-// hasHardwareAcceleration overrides the default implementation
-func hasHardwareAcceleration() bool {
-	return hasAES
-}
-
-// batchEncryptOptimized overrides the default implementation with ARM64 assembly
-func batchEncryptOptimized(h *HiAE, msgs, cts *[256]byte) {
-	if hasAES {
-		batchEncryptARM64(h, msgs, cts)
-	} else {
-		for i := 0; i < 16; i++ {
-			start := i * BlockLen
-			end := start + BlockLen
-			h.updateEnc(msgs[start:end], cts[start:end])
-		}
-	}
-}
-
-// batchDecryptOptimized overrides the default implementation with ARM64 assembly
-func batchDecryptOptimized(h *HiAE, cts, msgs *[256]byte) {
-	if hasAES {
-		batchDecryptARM64(h, cts, msgs)
-	} else {
-		for i := 0; i < 16; i++ {
-			start := i * BlockLen
-			end := start + BlockLen
-			h.updateDec(cts[start:end], msgs[start:end])
-		}
-	}
-}
+func hiaeDecNI(s *byte, off *int, in, out *byte, n uint64)
