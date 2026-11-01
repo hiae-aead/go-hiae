@@ -1,25 +1,18 @@
-//go:build !arm64
+//go:build (!amd64 && !arm64) || purego
 
 package hiae
 
-// Generic fallback implementations for non-ARM64 platforms
+// SupportsHardwareAES is false without AES-NI / AESE, and under purego.
+func SupportsHardwareAES() bool { return false }
 
-// SupportsHardwareAES returns false for non-ARM64 platforms
-func SupportsHardwareAES() bool {
-	return false
-}
-
-// aeslInPlaceOptimized uses the generic implementation on non-ARM64 platforms
-func aeslInPlaceOptimized(input []byte, output []byte) {
+func aeslInPlaceOptimized(input, output []byte) {
 	aeslInPlaceGeneric(input, output)
 }
 
-// updateEncOptimized uses the generic implementation on non-ARM64 platforms
-func updateEncOptimized(h *HiAE, mi []byte, ci []byte) {
+func updateEncOptimized(h *HiAE, mi, ci []byte) {
 	updateEncGeneric(h, mi, ci)
 }
 
-// updateDecOptimized uses the generic implementation on non-ARM64 platforms
-func updateDecOptimized(h *HiAE, ci []byte, mi []byte) {
+func updateDecOptimized(h *HiAE, ci, mi []byte) {
 	updateDecGeneric(h, ci, mi)
 }

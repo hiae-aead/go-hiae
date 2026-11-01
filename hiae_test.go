@@ -1,6 +1,7 @@
 package hiae
 
 import (
+	"bytes"
 	"encoding/hex"
 	"testing"
 )
@@ -377,6 +378,47 @@ func TestKeyNonceLengths(t *testing.T) {
 	_, err = Decrypt(ct, invalidTag, validAd, validKey, validNonce)
 	if err == nil {
 		t.Error("Expected error for invalid tag length")
+	}
+}
+
+// TestHardwareMatchesGeneric checks the AES-NI / AESE loop against the S-box
+// path, including offsets that are not a multiple of 16 blocks.
+func TestHardwareMatchesGeneric(t *testing.T) {
+	if encNI == nil {
+		t.Skip("no AES-NI or AESE")
+	}
+	enc, dec, hw := encNI, decNI, useAESLAsm
+	defer func() {
+		encNI, decNI, useAESLAsm = enc, dec, hw
+	}()
+
+	key := bytes.Repeat([]byte{0x11}, 32)
+	nonce := bytes.Repeat([]byte{0x22}, 16)
+	for _, adN := range []int{0, 1, 16, 17, 40} {
+		ad := bytes.Repeat([]byte{0x33}, adN)
+		for _, n := range []int{0, 1, 15, 16, 17, 31, 32, 255, 256, 257, 4096} {
+			msg := make([]byte, n)
+			for i := range msg {
+				msg[i] = byte(i)
+			}
+			encNI, decNI, useAESLAsm = nil, nil, false
+			wantCT, wantTag, err := Encrypt(msg, ad, key, nonce)
+			if err != nil {
+				t.Fatal(err)
+			}
+			encNI, decNI, useAESLAsm = enc, dec, hw
+			gotCT, gotTag, err := Encrypt(msg, ad, key, nonce)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(gotCT, wantCT) || !bytes.Equal(gotTag, wantTag) {
+				t.Fatalf("enc ad=%d n=%d", adN, n)
+			}
+			plain, err := Decrypt(gotCT, gotTag, ad, key, nonce)
+			if err != nil || !bytes.Equal(plain, msg) {
+				t.Fatalf("dec ad=%d n=%d %v", adN, n, err)
+			}
+		}
 	}
 }
 
